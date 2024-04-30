@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Callable, Sequence
 import dill
 
 from airflow.decorators.base import DecoratedOperator, task_decorator_factory
+from airflow.exceptions import AirflowException
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.utils.python_virtualenv import write_python_script
 
@@ -89,14 +90,14 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
             f"""bash -cx  '{_generate_decode_command("__PYTHON_SCRIPT", "/tmp/script.py",
                                                      self.python_command)} &&"""
             f'{_generate_decode_command("__PYTHON_INPUT", "/tmp/script.in", self.python_command)} &&'
-            f"{self.python_command} /tmp/script.py /tmp/script.in /tmp/script.out'"
+            f"{self.python_command} /tmp/script.py /tmp/script.in /tmp/script.out /tmp/termination.log'"
         )
 
     def execute(self, context: Context):
         with TemporaryDirectory(prefix="venv") as tmp_dir:
             input_filename = os.path.join(tmp_dir, "script.in")
             script_filename = os.path.join(tmp_dir, "script.py")
-
+            termination_filename = tmp_dir / "termination.log"
             with open(input_filename, "wb") as file:
                 if self.op_args or self.op_kwargs:
                     self.pickling_library.dump({"args": self.op_args, "kwargs": self.op_kwargs}, file)
@@ -124,7 +125,15 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
                 self.environment["__PYTHON_INPUT"] = ""
 
             self.command = self.generate_command()
-            return super().execute(context)
+            try:
+                result = super().execute(context)
+            except Exception as e:
+                if os.path.exists(termination_filename):
+                    with open(termination_filename, "r") as f:
+                        termination_message = f.read()
+                    raise AirflowException(termination_message) from None
+                raise e
+            return result
 
     @property
     def pickling_library(self):
