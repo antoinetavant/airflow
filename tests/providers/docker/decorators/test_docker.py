@@ -285,8 +285,8 @@ class TestDockerDecorator:
 
         assert ret.operator.docker_url == "unix://var/run/docker.sock"
 
-    def test_fail_with_lessage(self, dag_maker):
-        @task.docker(image="python:3.9-slim", auto_remove="force")
+    def test_fail_with_message(self, dag_maker):
+        @task.docker(image="python:3.9-slim", auto_remove="force", mount_tmp_dir=False)
         def f():
             raise Exception("Custom error message")
 
@@ -294,6 +294,6 @@ class TestDockerDecorator:
             ret = f()
 
         dr = dag_maker.create_dagrun()
-        with pytest.raises(AirflowException) as e:
+        ret.operator.run(start_date=dr.execution_date, end_date=dr.execution_date)
+        with pytest.raises(AirflowException, match="Custom error message"):
             ret.operator.run(start_date=dr.execution_date, end_date=dr.execution_date)
-        assert "Custom error message" in str(e)

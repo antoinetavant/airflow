@@ -90,14 +90,14 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
             f"""bash -cx  '{_generate_decode_command("__PYTHON_SCRIPT", "/tmp/script.py",
                                                      self.python_command)} &&"""
             f'{_generate_decode_command("__PYTHON_INPUT", "/tmp/script.in", self.python_command)} &&'
-            f"{self.python_command} /tmp/script.py /tmp/script.in /tmp/script.out /tmp/termination.log'"
+            f"{self.python_command} /tmp/script.py /tmp/script.in /tmp/script.out none /tmp/script.out'"
         )
 
     def execute(self, context: Context):
         with TemporaryDirectory(prefix="venv") as tmp_dir:
             input_filename = os.path.join(tmp_dir, "script.in")
             script_filename = os.path.join(tmp_dir, "script.py")
-            termination_filename = tmp_dir / "termination.log"
+            termination_filename =  os.path.join(tmp_dir, "/script.out")
             with open(input_filename, "wb") as file:
                 if self.op_args or self.op_kwargs:
                     self.pickling_library.dump({"args": self.op_args, "kwargs": self.op_kwargs}, file)
@@ -114,6 +114,8 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
                 },
                 filename=script_filename,
             )
+            with open(termination_filename, "w") as f:
+                f.write("Task exited with return code 0\n")
 
             # Pass the python script to be executed, and the input args, via environment variables. This is
             # more than slightly hacky, but it means it can work when Airflow itself is in the same Docker
@@ -129,9 +131,9 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
                 result = super().execute(context)
             except Exception as e:
                 if os.path.exists(termination_filename):
-                    with open(termination_filename, "r") as f:
-                        termination_message = f.read()
-                    raise AirflowException(termination_message) from None
+                    error_message = f"Task failed\n"
+                    error_message += self._attempt_to_retrieve_result()
+                    raise AirflowException(error_message) from None
                 raise e
             return result
 
