@@ -97,7 +97,7 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
         with TemporaryDirectory(prefix="venv") as tmp_dir:
             input_filename = os.path.join(tmp_dir, "script.in")
             script_filename = os.path.join(tmp_dir, "script.py")
-            termination_filename =  os.path.join(tmp_dir, "/script.out")
+            termination_filename = os.path.join(tmp_dir, "script.out")
             with open(input_filename, "wb") as file:
                 if self.op_args or self.op_kwargs:
                     self.pickling_library.dump({"args": self.op_args, "kwargs": self.op_kwargs}, file)
@@ -131,7 +131,7 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
                 result = super().execute(context)
             except Exception as e:
                 if os.path.exists(termination_filename):
-                    error_message = f"Task failed\n"
+                    error_message = "Task failed\n"
                     error_message += self._attempt_to_retrieve_result()
                     raise AirflowException(error_message) from None
                 raise e
