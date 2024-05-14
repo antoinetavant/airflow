@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Callable, Sequence
 import dill
 
 from airflow.decorators.base import DecoratedOperator, task_decorator_factory
-from airflow.exceptions import AirflowException
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.utils.python_virtualenv import write_python_script
 
@@ -97,7 +96,6 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
         with TemporaryDirectory(prefix="venv") as tmp_dir:
             input_filename = os.path.join(tmp_dir, "script.in")
             script_filename = os.path.join(tmp_dir, "script.py")
-            termination_filename = os.path.join(tmp_dir, "script.out")
             with open(input_filename, "wb") as file:
                 if self.op_args or self.op_kwargs:
                     self.pickling_library.dump({"args": self.op_args, "kwargs": self.op_kwargs}, file)
@@ -114,9 +112,6 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
                 },
                 filename=script_filename,
             )
-            with open(termination_filename, "w") as f:
-                f.write("Task exited with return code 0\n")
-
             # Pass the python script to be executed, and the input args, via environment variables. This is
             # more than slightly hacky, but it means it can work when Airflow itself is in the same Docker
             # engine where this task is going to run (unlike say trying to mount a file in)
@@ -127,15 +122,7 @@ class _DockerDecoratedOperator(DecoratedOperator, DockerOperator):
                 self.environment["__PYTHON_INPUT"] = ""
 
             self.command = self.generate_command()
-            try:
-                result = super().execute(context)
-            except Exception as e:
-                if os.path.exists(termination_filename):
-                    error_message = "Task failed\n"
-                    error_message += self._attempt_to_retrieve_result()
-                    raise AirflowException(error_message) from None
-                raise e
-            return result
+            return super().execute(context)
 
     @property
     def pickling_library(self):
